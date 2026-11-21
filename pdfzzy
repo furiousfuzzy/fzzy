@@ -1,29 +1,58 @@
+--========================================================================
+-- Single-instance guard: a second launch while this one is running is cancelled, so two copies never overlap.
+-- To replace a running copy on purpose (e.g. after editing), run  _G.FzzrReload = true  before executing again.
+-- "Running" means a heartbeat was seen in the last 3 seconds, so a crashed copy never blocks a new launch.
+--========================================================================
+local SESSION = {}
+local Window                                   -- assigned below; the heartbeat loop reads it
+do
+    local hub = _G.__FzzrHub
+    local alive = false
+    if hub and not hub.dead and hub.lastFrame then             -- core exports a heartbeat (see the core patch)
+        alive = tick() - hub.lastFrame < 3
+    elseif _G.__FzzrSession and _G.__FzzrAlive then            -- otherwise this script's own heartbeat
+        alive = tick() - _G.__FzzrAlive < 3
+    end
+    if alive and not _G.FzzrReload then
+        warn("[fzzr] already running - this launch was cancelled (set _G.FzzrReload = true before running to replace it)")
+        pcall(function() hub:Toast({ Title = "Already running", Text = "Second launch cancelled", Icon = "info", Duration = 3 }) end)
+        return
+    end
+    _G.FzzrReload = nil
+    if _G.__FzzrPlayerInfo then pcall(_G.__FzzrPlayerInfo); _G.__FzzrPlayerInfo = nil end   -- remove the old panels first
+    _G.__FzzrSession = SESSION
+    local launchedAt = tick()
+    task.spawn(function()
+        while _G.__FzzrSession == SESSION do
+            if Window and Window.dead then break end                   -- the window was destroyed: stop the heartbeat
+            if not Window and tick() - launchedAt > 45 then break end  -- never got as far as creating the window
+            _G.__FzzrAlive = tick()
+            wait(0.5)
+        end
+    end)
+end
+
 loadstring(httpget("https://raw.githubusercontent.com/zwooshii/lib/refs/heads/main/core"))()
 --[[
-    example.lua  --  clean template: all pages, sub pages and boxes, with no options yet.
-    Add options inside a box, for example:   aim:AddSwitch("aim_on", "Enable", false)
+    pdfzzy.lua  --  fzzr template + Player Info panel.
     Everything on the Common tab (Settings, Players) is built into the library and is not part of this file.
+    The Player Info panel is drawn by this script (Drawing API only, no downloads, no webhooks).
 ]]
 
 local Fzzr = _G.Fzzr                  -- Matcha drops loadstring return values, so the library lives in _G.Fzzr
 
-local Window = Fzzr:CreateWindow({
+Window = Fzzr:CreateWindow({
     Title = "fzzr", Version = "1.0.0", Position = { 60, 40 },
-    -- LogoUrl = "https://raw.githubusercontent.com/zwooshii/lib/main/assets/flaticons/fzzr.png",   -- optional: the library looks for fzzr.png in the icon folder by itself
-    -- IconBase = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_ICONS/main/",   -- own icon folder (see README)
-    -- TagStyle = { size = 10, height = 16, textDY = -1.5 },                            -- look of the header pills
 })
 
 --========================================================================
--- BUILD TAGS (top right of the header) -- edit this block to change them
+-- BUILD TAGS (top right of the header)
 --========================================================================
--- Which tags this build shows, left to right: any keys from TAG_TYPES, e.g. { "Dev" } / { "Beta", "Priv" } / {} for none.
 local BUILD_TAGS = { "Dev" }
--- Define / rename / recolour the kinds of build here (text is what the pill says).
 local TAG_TYPES = {
-    Beta = { text = "BETA", color = Color3.fromRGB(255, 159, 64) },   -- orange
-    Dev  = { text = "DEV",  color = Color3.fromRGB(255, 120, 170) },  -- pink
-    Priv = { text = "PRIV", color = Color3.fromRGB(255, 77, 77) },    -- red
+    Beta = { text = "BETA", color = Color3.fromRGB(255, 159, 64) },
+    Dev  = { text = "DEV",  color = Color3.fromRGB(255, 120, 170) },
+    Priv = { text = "PRIV", color = Color3.fromRGB(255, 77, 77) },
 }
 for _, name in ipairs(BUILD_TAGS) do
     local t = TAG_TYPES[name]
@@ -36,45 +65,34 @@ end
 local ragebot  = Window:AddPage("Ragebot",  { category = "Weapon",     icon = "crosshair" })
 local legitbot = Window:AddPage("Legitbot", { category = "Weapon",     icon = "brush" })
 local visuals  = Window:AddPage("Visuals",  { category = "Visuals",    icon = "mountain" })
-local pdisplay= Window:AddPage("Player Display", { category = "Other", icon = "blade" })
+local pdisplay = Window:AddPage("Player Display", { category = "Other", icon = "blade" })
 local misc     = Window:AddPage("Misc",     { category = "Other",      icon = "bolt" })
 local alerts   = Window:AddPage("Alerts",   { category = "Other",      icon = "bolt" })
+local pinfo    = Window:AddPage("Player Info", { parent = "Player Display", icon = "user" })
 local hotbar   = Window:AddPage("Hotbar",    { parent = "Player Display", icon = "grid" })
 local pinv     = Window:AddPage("Inventory", { parent = "Player Display", icon = "file" })
 local staffdet = Window:AddPage("Staff Detector",   { parent = "Alerts", icon = "user" })
 local cheatdet = Window:AddPage("Cheater Detector", { parent = "Alerts", icon = "search" })
 
 -- Ragebot ---------------------------------------------------------------
-local aim = ragebot:AddBox("Aimbot", "Left")
-
-local tgt = ragebot:AddBox("Targeting", "Left")
-
-local fil = ragebot:AddBox("Filters", "Left")
-
+local aim  = ragebot:AddBox("Aimbot", "Left")
+local tgt  = ragebot:AddBox("Targeting", "Left")
+local fil  = ragebot:AddBox("Filters", "Left")
 local perf = ragebot:AddBox("Performance", "Left")
-
-local rv = ragebot:AddBox("Visuals", "Left")
-
+local rv   = ragebot:AddBox("Visuals", "Left")
 local anti = ragebot:AddBox("Anti Aim", "Right")
-
-local wep = ragebot:AddBox("Weapon", "Right")
+local wep  = ragebot:AddBox("Weapon", "Right")
 
 -- Legitbot ----------------------------------------------------------------
 local lab = legitbot:AddBox("Aimbot", "Left")
-
 local ltg = legitbot:AddBox("Targeting", "Left")
-
 local trg = legitbot:AddBox("Triggerbot", "Right")
-
 local rcs = legitbot:AddBox("Recoil", "Right")
 
 -- Misc --------------------------------------------------------------------
 local mcam = misc:AddBox("Camera", "Left")
-
 local mwld = misc:AddBox("World", "Left")
-
 local mmov = misc:AddBox("Movement", "Right")
-
 local mutl = misc:AddBox("Utility", "Right")
 
 -- Alerts > Staff Detector ---------------------------------------------------
@@ -99,23 +117,1328 @@ local iva = pinv:AddBox("Alerts", "Right")
 do
     local vplayers = Window:AddPage("Players", { parent = "Visuals", icon = "user" })
     local vworld   = Window:AddPage("World",   { parent = "Visuals", icon = "globe" })
-
-    -- Player ESP
     local pesp = vplayers:AddBox("Player ESP", "Left")
-
-    -- Hit Effects
-    local hit = vplayers:AddBox("Hit Effects", "Right")
-
-    local slf = vplayers:AddBox("Self", "Right")
-
-    -- World
+    local hit  = vplayers:AddBox("Hit Effects", "Right")
+    local slf  = vplayers:AddBox("Self", "Right")
     local wbox = vworld:AddBox("World", "Left")
-
     local fbox = vworld:AddBox("Fill", "Left")
-
     local xbox = vworld:AddBox("Crosshair", "Right")
-
     local bbox = vworld:AddBox("Bullet Beams", "Right")
+end
+
+--========================================================================
+-- PLAYER INFO  (Player Display > Player Info)
+--========================================================================
+local resetPanelPos, dumpPlayerStats          -- assigned in the panel block below
+local resetHotPos, iconDebug
+
+local pib = pinfo:AddBox("Player Info", "Left")
+pib:AddSwitch("pi_on", "Enable Panel", true, { tip = "Shows a card for the player you look at (or yourself)." })
+pib:AddChoice("pi_target", "Target", { "Looked at player", "Myself" }, 1,
+    { width = 120, tip = "Myself is handy for placing the panel: it stays visible so you can drag it by its top bar." })
+pib:AddSlider("pi_radius", "Look Radius", 60, 400, 150, { suffix = "px", trackX = 100,
+    tip = "How close to the middle of the screen a player must be to count as looked at." })
+
+local pis = pinfo:AddBox("Style", "Right")
+pis:AddSlider("pi_opacity", "Opacity", 30, 100, 92, { suffix = "%", trackX = 80 })
+pis:AddSwitch("pi_shadow", "Shadow", true)
+pis:AddButtons({
+    { "Reset Position", function() if resetPanelPos then resetPanelPos() end end },
+    { "Dump Stats", function() if dumpPlayerStats then dumpPlayerStats() end end },
+})
+pis:AddCaption("Drag the panel by its top bar. Dump Stats prints the attribute names the game stores, to the console.")
+
+-- Hotbar (Player Display > Hotbar) ---------------------------------------------
+hbx:AddSwitch("hb_on", "Enable Hotbar", true, { tip = "Shows what the player holds and wears. Uses the same look radius as Player Info." })
+hbx:AddChoice("hb_target", "Target", { "Looked at player", "Myself" }, 1, { width = 120 })
+hbx:AddSwitch("hb_icons", "Load Icons", true,
+    { tip = "Icons are downloaded the first time they are needed (when you look at someone) and then kept. Turn off to show names only." })
+hbx:AddSwitch("hb_stims", "Stim Icons", true, { tip = "Active stims next to the name." })
+hbx:AddSwitch("hb_att", "Attachment Icons", true, { tip = "Small icons for scopes, lasers and visors in the corner of a tile." })
+
+hbs:AddSlider("hb_opacity", "Opacity", 30, 100, 92, { suffix = "%", trackX = 80 })
+hbs:AddSlider("hb_tile", "Tile Size", 40, 72, 60, { suffix = "px", trackX = 80 })
+hbs:AddButtons({
+    { "Reset Position", function() if resetHotPos then resetHotPos() end end },
+    { "Icon Debug", function() if iconDebug then iconDebug() end end },
+})
+hbs:AddCaption("Drag the hotbar by its name pill. Icon Debug prints why an icon did not load.")
+
+hbf:AddSwitch("hb_items", "Show Hotbar Items", true)
+hbf:AddSwitch("hb_gear", "Show Equipment", true)
+
+do
+    local Players = game:GetService("Players")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local RunService = game:GetService("RunService")
+    local Workspace = game:GetService("Workspace")
+    local LocalPlayer = Players.LocalPlayer
+    local LOCAL_NAME = LocalPlayer.Name
+    local Mouse = LocalPlayer:GetMouse()
+
+    if _G.__FzzrPlayerInfo then pcall(_G.__FzzrPlayerInfo) end   -- re-execute: remove the previous panel
+
+    local floor, min, max, exp, abs = math.floor, math.min, math.max, math.exp, math.abs
+
+    ----------------------------------------------------------------------
+    -- Where the numbers live (edit these if Dump Stats shows other names)
+    ----------------------------------------------------------------------
+    local M_PER_STUD = 0.28
+    local PANEL_W = 300
+    local HEADER_H = 46
+    local KILL_KEYS = { "Kills", "PlayerKills", "KillCount" }
+    local DEATH_KEYS = { "Deaths", "PlayerDeaths", "DeathCount" }
+    local HEALTH_KEYS = { "Health", "HP" }            -- fallback, read from Status.GameplayVariables
+    local MAXHEALTH_KEYS = { "MaxHealth", "MaxHP" }
+    local STIMS = {
+        { name = "SerumYellow", label = "Yellow", col = { 1.00, 0.84, 0.00 } },
+        { name = "SerumRed",    label = "Red",    col = { 1.00, 0.27, 0.27 } },
+        { name = "SerumPurple", label = "Purple", col = { 0.67, 0.39, 1.00 } },
+        { name = "SerumGreen",  label = "Green",  col = { 0.27, 0.86, 0.43 } },
+    }
+    local HP_GREEN, HP_YELLOW, HP_RED = { 0.30, 0.90, 0.45 }, { 1.0, 0.78, 0.2 }, { 1.0, 0.30, 0.30 }
+    local BLACK = { 0, 0, 0 }
+    -- slots under Status.GameplayVariables.Hotbar (capitalisation ignored, empty slots are skipped)
+    -- what the panel shows (fixed). Speed / Team / Stims / Holding / Hotbar are still supported by the code below:
+    -- set one to true to bring it back, or reuse it for the Hotbar panel later.
+    local FIELDS = { Distance = true, Health = true, KDR = true, Playtime = true, Reports = true,
+        Speed = false, Team = false, Stims = false, Holding = false, Hotbar = false }
+    local HOT_SLOTS = { "ItemBack1", "ItemBack2", "ItemHip1", "Hotbar4", "Hotbar5", "Hotbar6", "Hotbar7", "Hotbar8", "Melee" }
+
+    -- theme: follows the fzzr theme when the library exports it (Fzzr.Colors = C), else the default Fzzr look
+    local FALLBACK = {
+        bg = { 17 / 255, 15 / 255, 19 / 255 }, group = { 26 / 255, 22 / 255, 29 / 255 },
+        border = { 52 / 255, 44 / 255, 55 / 255 }, text = { 248 / 255, 240 / 255, 244 / 255 },
+        dim = { 143 / 255, 128 / 255, 137 / 255 }, accent = { 1, 168 / 255, 192 / 255 },
+    }
+    local function tc(name)
+        local c = Fzzr.Colors
+        c = c and c[name]
+        return c or FALLBACK[name]
+    end
+
+    local MIXR, MIXI = {}, 0
+    for i = 1, 48 do MIXR[i] = { 0, 0, 0 } end
+    local function mixc(a, b, t)
+        MIXI = MIXI % 48 + 1
+        local r = MIXR[MIXI]
+        r[1] = a[1] + (b[1] - a[1]) * t
+        r[2] = a[2] + (b[2] - a[2]) * t
+        r[3] = a[3] + (b[3] - a[3]) * t
+        return r
+    end
+    local function clamp(v, lo, hi) if v < lo then return lo elseif v > hi then return hi end return v end
+
+    -- rough text width (the Drawing API has no text measuring)
+    local NARROW = {}
+    for ch in (" ijltfrI.,:;|!'[]()"):gmatch(".") do NARROW[ch] = true end
+    local function textWidth(s, size)
+        local w = 0
+        for i = 1, #s do
+            local ch, b = s:sub(i, i), s:byte(i)
+            if NARROW[ch] then w = w + 0.33
+            elseif ch == "m" or ch == "w" or ch == "M" or ch == "W" then w = w + 0.86
+            elseif b >= 65 and b <= 90 then w = w + 0.64
+            else w = w + 0.56 end
+        end
+        return w * size
+    end
+    local function fitText(s, maxw, size)
+        if textWidth(s, size) <= maxw then return s end
+        while #s > 1 and textWidth(s .. "..", size) > maxw do s = s:sub(1, #s - 1) end
+        return s .. ".."
+    end
+
+    ----------------------------------------------------------------------
+    -- Pooled drawing: every Drawing object is created once per key and only touched when a value changes
+    ----------------------------------------------------------------------
+    local pool, frame = {}, 0
+    local FONT, FONT_BOLD = Drawing.Fonts.System, Drawing.Fonts.SystemBold
+
+    local function getDrawing(key, kind)
+        local d = pool[key]
+        if not d then
+            local o = Drawing.new(kind)
+            o.Visible = false
+            d = { o = o, c = {}, shown = false, seen = 0 }
+            pool[key] = d
+        end
+        d.seen = frame
+        return d
+    end
+    local function setProp(d, k, v)
+        if d.c[k] ~= v then d.c[k] = v; d.o[k] = v end
+    end
+    local function setColor(d, col)
+        local c = d.c
+        if c.r ~= col[1] or c.g ~= col[2] or c.b ~= col[3] then
+            c.r, c.g, c.b = col[1], col[2], col[3]
+            d.o.Color = Color3.new(col[1], col[2], col[3])
+        end
+    end
+    local function reveal(d) if not d.shown then d.o.Visible = true; d.shown = true end end
+
+    local function drawRect(key, x, y, w, h, col, a, z, filled, corner, thick)
+        if a < 0.01 or w <= 0 or h <= 0 then return end
+        local d = getDrawing(key, "Square")
+        local c = d.c
+        x, y, w, h = floor(x + 0.5), floor(y + 0.5), floor(w + 0.5), floor(h + 0.5)
+        if c.px ~= x or c.py ~= y then c.px = x; c.py = y; d.o.Position = Vector2.new(x, y) end
+        if c.sx ~= w or c.sy ~= h then c.sx = w; c.sy = h; d.o.Size = Vector2.new(w, h) end
+        setColor(d, col)
+        setProp(d, "Transparency", floor(a * 100 + 0.5) / 100)
+        setProp(d, "ZIndex", z)
+        setProp(d, "Filled", filled ~= false)
+        setProp(d, "Corner", floor(min(corner or 0, w / 2, h / 2)))
+        if filled == false then setProp(d, "Thickness", thick or 1) end
+        reveal(d)
+    end
+
+    local function drawCirc(key, x, y, r, col, a, z, filled, thick)
+        if a < 0.01 then return end
+        local d = getDrawing(key, "Circle")
+        local c = d.c
+        x, y = floor(x + 0.5), floor(y + 0.5)
+        if c.px ~= x or c.py ~= y then c.px = x; c.py = y; d.o.Position = Vector2.new(x, y) end
+        setProp(d, "Radius", r)
+        setProp(d, "NumSides", r > 8 and 40 or 24)
+        setColor(d, col)
+        setProp(d, "Transparency", floor(a * 100 + 0.5) / 100)
+        setProp(d, "ZIndex", z)
+        setProp(d, "Filled", filled ~= false)
+        if filled == false then setProp(d, "Thickness", thick or 1) end
+        reveal(d)
+    end
+
+    -- cy = vertical centre of the text; align: nil = left, "r" = right, "c" = centre around x
+    local function drawTxt(key, s, x, cy, col, a, z, size, bold, align)
+        if a < 0.01 or s == nil or s == "" then return end
+        local d = getDrawing(key, "Text")
+        local c = d.c
+        if align then
+            local w = textWidth(s, size)
+            if align == "r" then x = x - w else x = x - w / 2 end
+        end
+        local X, Y = floor(x + 0.5), floor(cy - size / 2 - 1 + 0.5)
+        if c.px ~= X or c.py ~= Y then c.px = X; c.py = Y; d.o.Position = Vector2.new(X, Y) end
+        setProp(d, "Text", s)
+        setColor(d, col)
+        setProp(d, "Transparency", floor(a * 100 + 0.5) / 100)
+        setProp(d, "ZIndex", z)
+        setProp(d, "Size", floor(size + 0.5))
+        setProp(d, "Font", bold and FONT_BOLD or FONT)
+        setProp(d, "Outline", false)
+        setProp(d, "Center", false)
+        reveal(d)
+    end
+
+    local function drawImg(key, data, x, y, size, a, z, round)
+        if a < 0.01 then return end
+        local d = getDrawing(key, "Image")
+        local c = d.c
+        if c.data ~= data then c.data = data; d.o.Data = data end
+        if c.sz ~= size then c.sz = size; d.o.Size = Vector2.new(size, size) end
+        x, y = floor(x + 0.5), floor(y + 0.5)
+        if c.px ~= x or c.py ~= y then c.px = x; c.py = y; d.o.Position = Vector2.new(x, y) end
+        setProp(d, "Rounding", round)
+        setProp(d, "Transparency", floor(a * 100 + 0.5) / 100)
+        setProp(d, "ZIndex", z)
+        reveal(d)
+    end
+
+    local function sweep()
+        for _, d in pairs(pool) do
+            if d.shown and d.seen ~= frame then d.o.Visible = false; d.shown = false end
+        end
+    end
+
+    ----------------------------------------------------------------------
+    -- Reading the game
+    ----------------------------------------------------------------------
+    local function playerList()
+        local ok, list = pcall(Players.GetPlayers, Players)
+        if ok and type(list) == "table" then return list end
+        local ok2, kids = pcall(Players.GetChildren, Players)
+        if ok2 and type(kids) == "table" then return kids end
+        return {}
+    end
+
+    local playersFolder
+    local function getPlayersFolder()
+        if not playersFolder or playersFolder.Parent == nil then
+            playersFolder = ReplicatedStorage:FindFirstChild("Players")
+        end
+        return playersFolder
+    end
+
+    local function attrNum(inst, keys)
+        if not inst then return nil end
+        for i = 1, #keys do
+            local v = inst:GetAttribute(keys[i])
+            if type(v) == "number" then return v end
+        end
+        return nil
+    end
+
+    -- turns a stored value (string, or an instance such as an ObjectValue target) into an item name
+    local function nameOf(v)
+        if v == nil then return nil end
+        if type(v) == "string" then
+            if v == "" or v == "Unreadable_name" then return nil end
+            return v
+        end
+        if type(v) == "number" or type(v) == "boolean" then return nil end
+        local ok, nm = pcall(function() return v.Name end)
+        if ok and type(nm) == "string" and nm ~= "" and nm ~= "Unreadable_name" then return nm end
+        return nil
+    end
+
+    local function findCI(parent, name)
+        local c = parent:FindFirstChild(name)
+        if c then return c end
+        local lower = string.lower(name)
+        local kids = parent:GetChildren()
+        for i = 1, #kids do
+            if string.lower(kids[i].Name) == lower then return kids[i] end
+        end
+        return nil
+    end
+
+    local function readItemName(parent, key)
+        local n = nameOf(parent:GetAttribute(key))
+        if n then return n end
+        local c = findCI(parent, key)
+        if not c then return nil end
+        local okv, v = pcall(function() return c.Value end)
+        if okv then
+            n = nameOf(v)
+            if n then return n end
+        end
+        local kids = c:GetChildren()
+        if #kids > 0 then return kids[1].Name end
+        return nil
+    end
+
+    ----------------------------------------------------------------------
+    -- Avatar headshots (same lookup the fzzr footer uses): thumbnails API -> image url -> PNG bytes, cached per user id
+    ----------------------------------------------------------------------
+    local AV, avQueue = {}, {}
+    local function httpText(url)
+        local ok, res = pcall(function()
+            if httpget then return httpget(url) end
+            return game:HttpGet(url)
+        end)
+        if ok and type(res) == "string" then return res end
+        return nil
+    end
+    local function fetchPng(url)
+        local res = httpText(url)
+        if res and #res > 8 and res:sub(2, 4) == "PNG" then return res end
+        return nil
+    end
+    local function fetchAvatar(userId)
+        for _ = 1, 4 do
+            local body = httpText("https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. userId ..
+                "&size=150x150&format=Png&isCircular=false")
+            local url = body and body:match('"imageUrl"%s*:%s*"(.-)"')
+            if url then
+                local d = fetchPng(url)
+                if d then return d end
+            end
+            wait(0.5)
+        end
+        return fetchPng("https://www.roblox.com/headshot-thumbnail/image?userId=" .. userId .. "&width=150&height=150&format=png")
+    end
+    local function requestAvatar(uid)
+        local e = AV[uid]
+        if e and (e.state == "loading" or e.state == "ok" or (e.state == "fail" and tick() - e.at < 30)) then return end
+        AV[uid] = { state = "loading", at = tick() }
+        avQueue[#avQueue + 1] = uid
+    end
+
+    -- per-target data (reset whenever the target changes)
+    local function newData(name)
+        return { name = name, sp = 0, stimIdx = {}, stimN = 0, statsAt = -1e9 }
+    end
+    local D = newData(nil)
+
+    -- finds the folders that hold a player's stats (every 2 s, plus whenever one of them disappears)
+    local function resolve(t)
+        local folder = getPlayersFolder()
+        local pf = folder and folder:FindFirstChild(t.name)
+        local status = pf and pf:FindFirstChild("Status")
+        t.gv = status and status:FindFirstChild("GameplayVariables")
+        t.buffs = t.gv and t.gv:FindFirstChild("Buffs")
+        t.hb = t.gv and (findCI(t.gv, "Hotbar") or t.gv)
+        local journey = status and status:FindFirstChild("Journey")
+        t.stat = journey and journey:FindFirstChild("Statistics")
+        t.wipe = journey and journey:FindFirstChild("WipeStatistics")
+        local uac = status and status:FindFirstChild("UAC")
+        t.rep = uac and uac:FindFirstChild("Reports")
+    end
+
+    local lhrp, lhrpAt = nil, -1e9
+    local function localHrp(now)
+        if now - lhrpAt >= 1 or not lhrp or lhrp.Parent == nil then
+            lhrpAt = now
+            local ch = (Players.LocalPlayer or Players:FindFirstChild(LOCAL_NAME) or {}).Character
+            lhrp = ch and ch:FindFirstChild("HumanoidRootPart")
+        end
+        return lhrp
+    end
+
+    local hrpCache, hrpAt, lastBest = {}, -1e9, nil
+    local function lookedAt(now, radius)
+        if now - hrpAt >= 3 then
+            hrpAt = now
+            local c = {}
+            for _, plr in ipairs(playerList()) do
+                if plr.Name ~= LOCAL_NAME then
+                    local ch = plr.Character
+                    local h = ch and ch:FindFirstChild("HumanoidRootPart")
+                    if h then c[plr.Name] = h end
+                end
+            end
+            hrpCache = c
+        end
+        local cam = Workspace.CurrentCamera
+        if not cam then return nil end
+        local vs = cam.ViewportSize
+        local cx, cy = vs.X * 0.5, vs.Y * 0.5
+        local radSq = radius * radius
+        local bestSq, best, prevSq = radSq, nil, nil
+        for name, hrp in pairs(hrpCache) do
+            local p = hrp.Position
+            if p then
+                local pos, on = WorldToScreen(p)
+                if on then
+                    local dx, dy = pos.X - cx, pos.Y - cy
+                    local sq = dx * dx + dy * dy
+                    if name == lastBest and sq < radSq then prevSq = sq end
+                    if sq < bestSq then bestSq = sq; best = name end
+                end
+            end
+        end
+        -- the current target is kept unless another player is clearly closer to the crosshair
+        if best and lastBest and best ~= lastBest and prevSq and math.sqrt(bestSq) > math.sqrt(prevSq) - 40 then
+            best = lastBest
+        end
+        lastBest = best
+        return best
+    end
+
+    local function targetHrp(name, now)
+        if name == LOCAL_NAME then return localHrp(now) end
+        return hrpCache[name]
+    end
+
+    -- team snapshot (ReplicatedStorage.Clans.<leader>'s team): built in the background, one team per frame
+    local TM = { snap = nil, at = 0, want = false }
+    local function scanTeam(team)
+        local leader = string.match(team.Name, "^(.+)'s [Tt]eam$")
+        local desc = team:GetDescendants()
+        local limit = min(#desc, 300)
+        local set = {}
+        if leader then set[leader] = true end
+        for i = 1, limit do set[desc[i].Name] = true end
+        return { name = team.Name, set = set }
+    end
+
+    local function readLive(t, now)
+        local hrp = targetHrp(t.name, now)
+        local lh = localHrp(now)
+        t.dist = nil
+        if hrp and lh and t.name ~= LOCAL_NAME then
+            local ok, d = pcall(function() return (hrp.Position - lh.Position).Magnitude end)
+            if ok and d then t.dist = floor(d * M_PER_STUD + 0.5) end
+        end
+        if hrp then
+            local ok, v = pcall(function() local a = hrp.AssemblyLinearVelocity; return math.sqrt(a.X * a.X + a.Z * a.Z) end)
+            if ok and v then t.sp = t.sp + (v - t.sp) * 0.3 end
+        end
+
+        -- health: Humanoid first, then the game's own attributes
+        local hp, mx
+        local plr = Players:FindFirstChild(t.name)
+        local ch = plr and plr.Character
+        local ok, hum = pcall(function() return ch and ch:FindFirstChildOfClass("Humanoid") end)
+        if ok and hum then
+            local ok2, h, m = pcall(function() return hum.Health, hum.MaxHealth end)
+            if ok2 and type(h) == "number" and type(m) == "number" and m > 0 then hp, mx = h, m end
+        end
+        if not hp and t.gv then
+            hp, mx = attrNum(t.gv, HEALTH_KEYS), attrNum(t.gv, MAXHEALTH_KEYS)
+            if hp and not mx then mx = 100 end
+        end
+        t.hp, t.mhp = hp, mx
+        t.uid = plr and plr.UserId or t.uid
+
+        -- stims: attributes on Status.GameplayVariables.Buffs (the value is only a countdown)
+        local n = 0
+        local b = t.buffs
+        if b and b.Parent ~= nil then
+            for i = 1, #STIMS do
+                local v = b:GetAttribute(STIMS[i].name)
+                if v == nil and b:FindFirstChild(STIMS[i].name) then v = true end
+                if v ~= nil and v ~= false and v ~= 0 then
+                    n = n + 1
+                    t.stimIdx[n] = i
+                end
+            end
+        end
+        t.stimN = n
+
+        -- hotbar items + the held item (every 0.5 s), wrapped into at most 3 text lines
+        if FIELDS.Hotbar and now - (t.hotAt or -1e9) >= 0.5 and t.gv and t.gv.Parent ~= nil then
+            t.hotAt = now
+            local src = t.hb or t.gv
+            local map = {}
+            local kids = src:GetChildren()
+            for i = 1, #kids do map[string.lower(kids[i].Name)] = kids[i] end
+            local items = {}
+            for i = 1, #HOT_SLOTS do
+                local key = HOT_SLOTS[i]
+                local item = nameOf(src:GetAttribute(key))
+                if not item then
+                    local c = map[string.lower(key)]
+                    if c then
+                        local okv, v = pcall(function() return c.Value end)
+                        if okv then item = nameOf(v) end
+                        if not item then
+                            local inner = c:GetChildren()
+                            if #inner > 0 then item = inner[1].Name end
+                        end
+                    end
+                end
+                if item then items[#items + 1] = item end
+            end
+            t.held = readItemName(t.gv, "EquippedTool")
+            local lines, line = {}, ""
+            for i = 1, #items do
+                local cand = (line == "") and items[i] or (line .. ", " .. items[i])
+                if line ~= "" and textWidth(cand, 11) > PANEL_W - 28 then
+                    lines[#lines + 1] = line
+                    line = items[i]
+                else
+                    line = cand
+                end
+            end
+            if line ~= "" then lines[#lines + 1] = line end
+            while #lines > 3 do lines[#lines] = nil end
+            t.hotLines = lines
+        end
+    end
+
+    local function readStats(t)
+        resolve(t)
+        t.kills = attrNum(t.stat, KILL_KEYS) or attrNum(t.wipe, KILL_KEYS)
+        t.deaths = attrNum(t.stat, DEATH_KEYS) or attrNum(t.wipe, DEATH_KEYS)
+        t.played = attrNum(t.stat, { "TimePlayed" }) or attrNum(t.wipe, { "TimePlayed" })
+        local rep = t.rep and t.rep:GetAttribute("1")
+        t.reports = type(rep) == "number" and rep or nil
+    end
+
+    ----------------------------------------------------------------------
+    -- Panel state + the step loop (10x per second, never inside the render hook)
+    ----------------------------------------------------------------------
+    local P = { x = 20, y = 20, h = 100, alpha = 0, want = false, drag = nil, wasDown = false, hp = 1 }
+    local running = true
+    local lastGrace, lastGraceAt = nil, 0
+    local lastErr
+
+    ----------------------------------------------------------------------
+    -- HOTBAR: icon loader (lazy: an icon is only downloaded the first time something needs it)
+    ----------------------------------------------------------------------
+    local IMG_BASES = {
+        "https://raw.githubusercontent.com/furiousfuzzy/fzzy/main/assets/items/images/",
+        "https://cdn.jsdelivr.net/gh/furiousfuzzy/fzzy@main/assets/items/images/",
+    }
+    local IMG_RETRY = 60
+    -- item name in the game -> file name in the repo, for icons whose file name differs (add more here if Icon Debug shows 404s)
+    local IMG_ALIAS = { SSH68 = "SSH668", WastelandBackpack = "Wastelander", ScavKingHelmet = "ScavKingCrown" }
+
+    local HB = { cx = nil, y = 44, alpha = 0, want = false, drag = nil, wasDown = false }
+    local IMG = { data = {}, state = {}, failAt = {}, info = {}, queue = {} }
+
+    local function imgKind(data)
+        if type(data) ~= "string" then return nil end
+        if string.sub(data, 2, 4) == "PNG" then return "png" end
+        if string.sub(data, 1, 2) == "\255\216" then return "jpg" end
+        if string.sub(data, 1, 4) == "RIFF" and string.sub(data, 9, 12) == "WEBP" then return "webp" end
+        return nil
+    end
+
+    local function requestImg(item)
+        if Window:Get("hb_icons") ~= true then return end
+        local st = IMG.state[item]
+        if st == "ok" or st == "loading" then return end
+        if st == "fail" and tick() - IMG.failAt[item] < IMG_RETRY then return end
+        IMG.state[item] = "loading"
+        IMG.queue[#IMG.queue + 1] = item
+    end
+
+    -- tries every host for "<fileName>.png"; returns the bytes, or nil plus why the last host failed
+    local function tryDownload(fileName)
+        local why = "no hosts"
+        for i = 1, #IMG_BASES do
+            local url = IMG_BASES[i] .. fileName .. ".png"
+            local ok, data = pcall(function()
+                if httpget then return httpget(url) end
+                return game:HttpGet(url)
+            end)
+            local kind = ok and imgKind(data)
+            if kind and kind ~= "webp" and #data > 100 then return data end
+            if not ok then why = "error: " .. tostring(data)
+            elseif type(data) ~= "string" then why = "returned " .. type(data)
+            elseif #data < 100 then why = "not found (" .. fileName .. ".png)"
+            else why = #data .. " bytes, format: " .. tostring(kind or "unknown") end
+        end
+        return nil, why
+    end
+
+    local function iconWorker()
+        while running do
+            local item = table.remove(IMG.queue, 1)
+            if item and Window:Get("hb_icons") ~= true then
+                IMG.state[item] = nil
+                wait(0.25)
+            elseif item then
+                local data, why = tryDownload(item)
+                if not data and IMG_ALIAS[item] then
+                    local d2, w2 = tryDownload(IMG_ALIAS[item])
+                    data = d2
+                    if not d2 then why = tostring(why) .. " | " .. IMG_ALIAS[item] .. ": " .. tostring(w2) end
+                end
+                if not data then
+                    local alt = string.upper(string.sub(item, 1, 1)) .. string.lower(string.sub(item, 2))
+                    if alt ~= item then
+                        local d3, w3 = tryDownload(alt)
+                        data = d3
+                        if not d3 then why = tostring(why) .. " | " .. alt .. ": " .. tostring(w3) end
+                    end
+                end
+                if data then
+                    IMG.data[item] = data
+                    IMG.state[item] = "ok"
+                    IMG.info[item] = #data .. " bytes"
+                else
+                    IMG.state[item] = "fail"
+                    IMG.failAt[item] = tick()
+                    IMG.info[item] = why
+                end
+                wait(0.03)
+            else
+                wait(0.2)
+            end
+        end
+    end
+    for _ = 1, 3 do task.spawn(iconWorker) end     -- three downloads at a time, so a new player's icons appear quickly
+
+    ----------------------------------------------------------------------
+    -- HOTBAR: what to show and how to read it
+    ----------------------------------------------------------------------
+    -- display order: head -> face -> body -> bags
+    local ARMOR_ORDER = {
+        "ScavKingHelmet", "Altyn", "UNOHelmet", "6B47", "6B27", "FastMT",
+        "Pokushanka", "ZSh", "SSH68", "GMT", "Dozer",
+        "ScavKingCrown", "InflatedCrown", "MotorcycleHelmet", "TankerCap",
+        "MaskaVisor", "AltynVisor", "ZShVisor", "FastVisor", "MikeShades", "IOLA", "Kulon",
+        "GP5", "GP7",
+        "ScavKingVest", "IOTV4", "JPC", "HSPV", "Pantsir3", "DozerArmor",
+        "UNOVest", "TORS", "TWS", "6B5", "6B2", "6B23",
+        "ConcealedVest", "Smersh", "Bandolier",
+        "Attak5", "Lynx", "WastelandBackpack", "Wastelander", "Tortilla", "SpecopsBackpack",
+    }
+    local ATT = {
+        fastmt = { "QuadNVG", "TitanShield" },                  -- FastMT with ALL of these is really a GMT
+        visors = { Altyn = { "MaskaVisor", "AltynVisor" } },    -- helmet -> visor corner icon
+        gun = { "RK2", "Reapir", "PEQ15", "SOCOM556", "RK6", "ACOG", "SniperScope", "LPVO", "TimberWolfSuppressor", "StockVSS" },
+    }
+    local HIGHLIGHT, HL_COL = {}, { 1.0, 0.08, 0.58 }
+    for _, n in ipairs({ "FlareGun", "Reapir", "SOCOM556", "PEQ15", "HSPV", "TitanShield", "Mag556Rnd100",
+        "TFZ98S", "CatToken", "ThermalModule", "R700", "338AP", "IOTV4" }) do HIGHLIGHT[n] = true end
+
+    local function newHot(name)
+        return { name = name, hot = {}, hotN = 0, eq = {}, eqN = 0, stimIdx = {}, stimN = 0, gc = {},
+            statsAt = -1e9, hAt = -1e9, eAt = -1e9 }
+    end
+    local HD = newHot(nil)
+
+    local function invOf(name)
+        local folder = getPlayersFolder()
+        local p = folder and folder:FindFirstChild(name)
+        return p and p:FindFirstChild("Inventory")
+    end
+
+    -- an M4 with ALL of Reapir + PEQ15 + Mag556Rnd100 + SOCOM556 is a GODM4 (icon GODM4.png)
+    local function isGodM4(name)
+        local inv = invOf(name)
+        local m4 = inv and inv:FindFirstChild("M4")
+        local atts = m4 and m4:FindFirstChild("Attachments")
+        if not atts then return false end
+        return atts:FindFirstChild("Reapir") ~= nil and atts:FindFirstChild("PEQ15") ~= nil
+            and atts:FindFirstChild("Mag556Rnd100") ~= nil and atts:FindFirstChild("SOCOM556") ~= nil
+    end
+
+    -- attachment names found anywhere under Inventory.<gun>.Attachments (nested ones count), in ATT.gun order
+    local function gunAtts(name, gun)
+        local inv = invOf(name)
+        local g = inv and inv:FindFirstChild(gun)
+        local atts = g and g:FindFirstChild("Attachments")
+        if not atts then return nil end
+        local d = atts:GetDescendants()
+        local out
+        for i = 1, #ATT.gun do
+            for j = 1, #d do
+                if d[j].Name == ATT.gun[i] then
+                    out = out or {}
+                    out[#out + 1] = ATT.gun[i]
+                    break
+                end
+            end
+        end
+        return out
+    end
+
+    local function readHotSlots(t, now)
+        local wantAtt = Window:Get("hb_att") == true
+        local items, n = t.hot, 0
+        local gv = t.gv
+        if gv and gv.Parent ~= nil then
+            local src = t.hb or gv
+            local map = {}
+            local kids = src:GetChildren()
+            for i = 1, #kids do map[string.lower(kids[i].Name)] = kids[i] end
+            local raws = {}
+            for i = 1, #HOT_SLOTS do
+                local key = HOT_SLOTS[i]
+                local item = nameOf(src:GetAttribute(key))
+                if not item then
+                    local c = map[string.lower(key)]
+                    if c then
+                        local okv, v = pcall(function() return c.Value end)
+                        if okv then item = nameOf(v) end
+                        if not item then
+                            local inner = c:GetChildren()
+                            if #inner > 0 then item = inner[1].Name end
+                        end
+                    end
+                end
+                if item then raws[#raws + 1] = item end
+            end
+            t.held = readItemName(gv, "EquippedTool")
+
+            local used = false
+            local list = {}
+            for i = 1, #raws do
+                local raw = raws[i]
+                -- attachment scans are cached per gun for 5 seconds
+                local ce = t.gc[raw]
+                if not ce or ce.att ~= wantAtt or now - ce.at >= 5 then
+                    ce = { at = now, att = wantAtt, god = false, subs = nil }
+                    if raw == "M4" and isGodM4(t.name) then ce.god = true
+                    elseif wantAtt then ce.subs = gunAtts(t.name, raw) end
+                    t.gc[raw] = ce
+                end
+                local isEq = false
+                if not used and t.held ~= nil and raw == t.held then isEq = true; used = true end
+                list[#list + 1] = { item = ce.god and "GODM4" or raw, subs = (not ce.god) and ce.subs or nil, eq = isEq }
+            end
+            t.hot = list
+            n = #list
+        else
+            t.hot = {}
+            t.held = nil
+        end
+        t.hotN = n
+
+        -- stims (attributes on Buffs; the value is only a countdown)
+        local sn = 0
+        local b = t.buffs
+        if b and b.Parent ~= nil and Window:Get("hb_stims") == true then
+            for i = 1, #STIMS do
+                local v = b:GetAttribute(STIMS[i].name)
+                if v == nil and b:FindFirstChild(STIMS[i].name) then v = true end
+                if v ~= nil and v ~= false and v ~= 0 then
+                    sn = sn + 1
+                    t.stimIdx[sn] = i
+                end
+            end
+        end
+        t.stimN = sn
+    end
+
+    local function readEquip(t)
+        local wantAtt = Window:Get("hb_att") == true
+        local inv = invOf(t.name)
+        t.eqFound = inv ~= nil
+        local list = {}
+        if inv then
+            for i = 1, #ARMOR_ORDER do
+                if #list >= 10 then break end
+                local gear = ARMOR_ORDER[i]
+                local inst = inv:FindFirstChild(gear)
+                if inst then
+                    local shown, sub = gear, nil
+                    local atts = inst:FindFirstChild("Attachments")
+                    if atts then
+                        if gear == "FastMT" then
+                            local all = true
+                            for k = 1, #ATT.fastmt do
+                                if not atts:FindFirstChild(ATT.fastmt[k]) then all = false break end
+                            end
+                            if all then shown = "GMT" end
+                        else
+                            local vis = ATT.visors[gear]
+                            if vis then
+                                for v = 1, #vis do
+                                    if atts:FindFirstChild(vis[v]) then sub = { vis[v] } break end
+                                end
+                            end
+                        end
+                    end
+                    local dup = false
+                    for k = 1, #list do if list[k].item == shown then dup = true break end end
+                    if not dup then list[#list + 1] = { item = shown, subs = wantAtt and sub or nil } end
+                end
+            end
+        end
+        t.eq = list
+        t.eqN = #list
+    end
+
+    -- the first time a player is looked at, everything on screen that has no icon yet is queued for download
+    local function requestHotIcons(t)
+        for i = 1, t.hotN do
+            local it = t.hot[i]
+            requestImg(it.item)
+            if it.subs then for k = 1, #it.subs do requestImg(it.subs[k]) end end
+        end
+        for i = 1, t.eqN do
+            local it = t.eq[i]
+            requestImg(it.item)
+            if it.subs then for k = 1, #it.subs do requestImg(it.subs[k]) end end
+        end
+        for i = 1, t.stimN do requestImg(STIMS[t.stimIdx[i]].name) end
+    end
+
+    local function stepHot(now, name)
+        HB.want = name ~= nil
+        if not name then return end
+        if HD.name ~= name then HD = newHot(name) end
+        local t = HD
+        if now - t.statsAt >= 2 then t.statsAt = now; resolve(t) end
+        if now - t.hAt >= 0.5 then t.hAt = now; readHotSlots(t, now) end
+        if now - t.eAt >= 3 then t.eAt = now; readEquip(t) end
+        requestHotIcons(t)
+    end
+
+    local function stepInfo(now, name)
+        P.want = name ~= nil
+        if not name then return end
+        if D.name ~= name then
+            D = newData(name)
+        end
+        if now - D.statsAt >= 2 then
+            D.statsAt = now
+            readStats(D)
+        end
+        readLive(D, now)
+
+        -- team lookup is only kept up to date while the Team field is on
+        TM.want = FIELDS.Team == true
+        if TM.want and TM.snap then
+            D.team = nil
+            for i = 1, #TM.snap do
+                if TM.snap[i].set[name] then D.team = TM.snap[i].name break end
+            end
+        end
+    end
+
+    -- one target pick per tick feeds both panels
+    -- the panels stay off until the main UI has finished loading (assets in, menu open), plus a short settle time
+    local readyAt
+    local function step()
+        local now = tick()
+        if _G.__FzzrSession ~= SESSION or not Window.ready then
+            readyAt = nil
+            P.want, HB.want = false, false
+            return
+        end
+        readyAt = readyAt or now
+        if now - readyAt < 1 then
+            P.want, HB.want = false, false
+            return
+        end
+        local infoOn = Window:Get("pi_on") == true
+        local hotOn = Window:Get("hb_on") == true
+        if not infoOn then P.want = false end
+        if not hotOn then HB.want = false end
+        if not infoOn and not hotOn then return end
+
+        localHrp(now)
+        local look = lookedAt(now, Window:Get("pi_radius") or 150)
+        if look then
+            lastGrace, lastGraceAt = look, now
+        elseif lastGrace and now - lastGraceAt < 1 then
+            look = lastGrace                -- the crosshair slipped off for a moment: keep the cards
+        end
+
+        if infoOn then
+            stepInfo(now, (Window:Get("pi_target") == "Myself") and LOCAL_NAME or look)
+        end
+        if hotOn then
+            stepHot(now, (Window:Get("hb_target") == "Myself") and LOCAL_NAME or look)
+        end
+    end
+
+    task.spawn(function()
+        while running do
+            local ok, err = pcall(step)
+            if not ok and err ~= lastErr then lastErr = err; warn("[fzzr player info] " .. tostring(err)) end
+            wait(0.1)
+        end
+    end)
+
+    task.spawn(function()
+        while running do
+            local uid = table.remove(avQueue, 1)
+            if uid then
+                local okA, data = pcall(fetchAvatar, uid)
+                if okA and data then AV[uid] = { state = "ok", data = data, at = tick() }
+                else AV[uid] = { state = "fail", at = tick() } end
+                wait(0.2)
+            else
+                wait(0.25)
+            end
+        end
+    end)
+
+    task.spawn(function()
+        while running do
+            if TM.want and (TM.snap == nil or tick() - TM.at >= 15) then
+                local snap = {}
+                local clans = ReplicatedStorage:FindFirstChild("Clans")
+                local okc, teams = pcall(function() return clans and clans:GetChildren() end)
+                if okc and teams then
+                    for i = 1, #teams do
+                        local ok, entry = pcall(scanTeam, teams[i])
+                        if ok and entry then snap[#snap + 1] = entry end
+                        task.wait()
+                    end
+                end
+                TM.snap, TM.at = snap, tick()
+            end
+            wait(1)
+        end
+    end)
+
+    ----------------------------------------------------------------------
+    -- Rendering
+    ----------------------------------------------------------------------
+    local lastT = tick()
+    local pillX, pillL, pillW = {}, {}, {}
+
+    local function hpColor(f)
+        if f > 0.5 then return mixc(HP_YELLOW, HP_GREEN, (f - 0.5) * 2) end
+        return mixc(HP_RED, HP_YELLOW, f * 2)
+    end
+
+    local function fmtPlaytime(s)
+        if type(s) ~= "number" then return "?" end
+        return string.format("%.1fh", s / 3600)
+    end
+
+    local function renderInfo(now, dt)
+        local perfMode = Window:Get("perf_mode") == true
+        local goal = P.want and 1 or 0
+        if perfMode then
+            P.alpha = goal
+        else
+            P.alpha = P.alpha + (goal - P.alpha) * (1 - exp(-14 * dt))
+            if abs(P.alpha - goal) < 0.01 then P.alpha = goal end
+        end
+        if P.alpha < 0.01 or not D.name then return end
+
+        local f = FIELDS
+        local w = PANEL_W
+        local cam = Workspace.CurrentCamera
+        local vs = cam and cam.ViewportSize
+
+        -- dragging by the top bar
+        local mx, my = Mouse.X, Mouse.Y
+        local down = ismouse1pressed() and isrbxactive()
+        if down and not P.wasDown and P.alpha > 0.5 then
+            if mx >= P.x and mx <= P.x + w and my >= P.y and my <= P.y + HEADER_H then
+                P.drag = { mx - P.x, my - P.y }
+            end
+        end
+        if P.drag then
+            if down then P.x, P.y = mx - P.drag[1], my - P.drag[2] else P.drag = nil end
+        end
+        P.wasDown = down
+        if vs then
+            P.x = clamp(P.x, 0, max(0, vs.X - w))
+            P.y = clamp(P.y, 0, max(0, vs.Y - P.h))
+        end
+
+        -- layout pass: total height
+        local rows = 0
+        if f.Playtime then rows = rows + 1 end
+        if f.Reports then rows = rows + 1 end
+        if f.Speed then rows = rows + 1 end
+        if f.Team then rows = rows + 1 end
+        if f.Holding then rows = rows + 1 end
+        local hotLines = D.hotLines or {}
+        local stimLines = 1
+        if f.Stims then
+            local cx = 14
+            for i = 1, D.stimN do
+                local s = STIMS[D.stimIdx[i]]
+                local pw = floor(textWidth(s.label, 10) * 1.1 + 26)
+                if cx + pw > w - 14 and cx > 14 then stimLines = stimLines + 1; cx = 14 end
+                pillX[i], pillL[i], pillW[i] = cx, stimLines, pw
+                cx = cx + pw + 5
+            end
+        end
+        local h = HEADER_H
+        if f.Health then h = h + 34 end
+        if f.KDR then h = h + 50 end
+        h = h + rows * 20
+        if f.Stims then h = h + 20 + stimLines * 22 end
+        if f.Hotbar then h = h + 24 + max(1, #hotLines) * 16 end
+        h = h + 10
+        P.h = h
+
+        local op = (Window:Get("pi_opacity") or 92) / 100
+        local A = P.alpha
+        local bgA = A * op
+        local fgA = A * min(1, op + 0.08)
+        local x, y = P.x, P.y
+
+        local cBg, cGroup, cBorder = tc("bg"), tc("group"), tc("border")
+        local cText, cDim, cAccent = tc("text"), tc("dim"), tc("accent")
+        local track = mixc(cGroup, cText, 0.15)
+
+        -- soft shadow + body
+        if Window:Get("pi_shadow") ~= false and not perfMode then
+            for i = 3, 1, -1 do
+                drawRect("sh" .. i, x - i * 2, y - i * 2 + 4, w + i * 4, h + i * 4, BLACK, 0.05 * bgA, 99, true, 10 + i * 2)
+            end
+        end
+        drawRect("bd", x, y, w, h, cBorder, bgA, 100, true, 10)
+        drawRect("bg", x + 1, y + 1, w - 2, h - 2, cBg, bgA, 101, true, 9)
+
+        -- header: headshot (initial badge until it loads), name, distance pill
+        local name = D.name
+        drawCirc("av", x + 27, y + 24, 14, mixc(cGroup, cAccent, 0.3), fgA, 102, true)
+        local av = D.uid and AV[D.uid]
+        if D.uid then requestAvatar(D.uid) end
+        if av and av.state == "ok" then
+            drawImg("avi", av.data, x + 13, y + 10, 28, fgA, 103, 14)
+        else
+            drawTxt("avt", string.upper(name:sub(1, 1)), x + 27, y + 24, cText, fgA, 104, 13, true, "c")
+        end
+        drawCirc("avr", x + 27, y + 24, 14.5, mixc(cGroup, cAccent, 0.75), fgA, 105, false, 1.2)
+        local pillSpace = 0
+        if f.Distance and D.dist then
+            local ds = D.dist .. " m"
+            local pw = textWidth(ds, 11) + 18
+            pillSpace = pw + 8
+            drawRect("dp", x + w - 12 - pw, y + 13, pw, 20, cGroup, fgA, 102, true, 7)
+            drawRect("dpb", x + w - 12 - pw, y + 13, pw, 20, mixc(cBorder, cAccent, 0.5), fgA, 103, false, 7, 1)
+            drawTxt("dpt", ds, x + w - 12 - pw / 2, y + 23, cAccent, fgA, 104, 11, true, "c")
+        end
+        drawTxt("nm", fitText(name, w - 56 - pillSpace - 12, 14), x + 48, y + 24, cText, fgA, 104, 14, true)
+        drawRect("hs", x + 12, y + HEADER_H - 3, w - 24, 1, cBorder, fgA, 103, true, 0)
+
+        local cy = y + HEADER_H
+
+        -- health bar
+        if f.Health then
+            drawTxt("hl", "HEALTH", x + 14, cy + 8, cDim, fgA, 104, 10, true)
+            local hp, mhp = D.hp, D.mhp
+            local frac = (hp and mhp and mhp > 0) and clamp(hp / mhp, 0, 1) or 0
+            P.hp = P.hp + (frac - P.hp) * (perfMode and 1 or (1 - exp(-12 * dt)))
+            drawTxt("hv", hp and (floor(hp + 0.5) .. " / " .. floor((mhp or 0) + 0.5)) or "?", x + w - 14, cy + 8, cText, fgA, 104, 11, true, "r")
+            drawRect("ht", x + 14, cy + 18, w - 28, 8, track, fgA, 102, true, 4)
+            drawRect("hf", x + 14, cy + 18, (w - 28) * P.hp, 8, hpColor(P.hp), fgA, 103, true, 4)
+            cy = cy + 34
+        end
+
+        -- KDR tiles
+        if f.KDR then
+            local tw3 = (w - 28 - 12) / 3
+            local kd
+            if D.kills then kd = string.format("%.2f", D.kills / max(D.deaths or 0, 1)) else kd = "?" end
+            local labels = { "KDR", "KILLS", "DEATHS" }
+            local values = { kd, D.kills and tostring(floor(D.kills)) or "?", D.deaths and tostring(floor(D.deaths)) or "?" }
+            for i = 1, 3 do
+                local tx = x + 14 + (i - 1) * (tw3 + 6)
+                drawRect("tb" .. i, tx, cy + 4, tw3, 42, cGroup, fgA, 102, true, 7)
+                drawRect("tbb" .. i, tx, cy + 4, tw3, 42, mixc(cBorder, cAccent, i == 1 and 0.45 or 0), fgA, 103, false, 7, 1)
+                drawTxt("tl" .. i, labels[i], tx + tw3 / 2, cy + 15, cDim, fgA, 104, 9.5, true, "c")
+                drawTxt("tv" .. i, values[i], tx + tw3 / 2, cy + 32, i == 1 and cAccent or cText, fgA, 104, 15, true, "c")
+            end
+            cy = cy + 50
+        end
+
+        -- label / value rows
+        local function infoRow(key, label, value)
+            drawTxt(key .. "l", label, x + 14, cy + 10, cDim, fgA, 104, 12, false)
+            drawTxt(key .. "v", fitText(value, w - 110, 12), x + w - 14, cy + 10, cText, fgA, 104, 12, true, "r")
+            cy = cy + 20
+        end
+        if f.Playtime then infoRow("pt", "Playtime", fmtPlaytime(D.played)) end
+        if f.Reports then infoRow("rp", "Reports", D.reports and tostring(floor(D.reports)) or "?") end
+        if f.Speed then infoRow("sp", "Speed", string.format("%.1f studs/s", D.sp)) end
+        if f.Team then infoRow("tm", "Team", D.team or (TM.snap and "None" or "Loading...")) end
+        if f.Holding then infoRow("hd", "Holding", D.held or "Nothing") end
+
+        -- stims
+        if f.Stims then
+            drawTxt("sl", "STIMS", x + 14, cy + 8, cDim, fgA, 104, 10, true)
+            if D.stimN == 0 then
+                drawTxt("sn", "None", x + 14, cy + 29, cDim, fgA, 104, 12, false)
+            else
+                for i = 1, D.stimN do
+                    local s = STIMS[D.stimIdx[i]]
+                    local px, py = x + pillX[i], cy + 18 + (pillL[i] - 1) * 22
+                    drawRect("sp" .. i, px, py, pillW[i], 18, cGroup, fgA, 102, true, 9)
+                    drawRect("spb" .. i, px, py, pillW[i], 18, mixc(cBorder, s.col, 0.6), fgA, 103, false, 9, 1)
+                    drawCirc("spd" .. i, px + 10, py + 9, 3.5, s.col, fgA, 104, true)
+                    drawTxt("spt" .. i, s.label, px + 18, py + 9, cText, fgA, 104, 10, true)
+                end
+            end
+            cy = cy + 20 + stimLines * 22
+        end
+
+        -- hotbar items (text list; the held item is on the Holding row)
+        if f.Hotbar then
+            drawTxt("hbl", "HOTBAR", x + 14, cy + 8, cDim, fgA, 104, 10, true)
+            if #hotLines == 0 then
+                drawTxt("hb1", "Empty", x + 14, cy + 28, cDim, fgA, 104, 11, false)
+            else
+                for i = 1, #hotLines do
+                    drawTxt("hb" .. i, hotLines[i], x + 14, cy + 28 + (i - 1) * 16, cText, fgA, 104, 11, false)
+                end
+            end
+        end
+
+    end
+
+    ----------------------------------------------------------------------
+    -- Hotbar panel: name pill (with stim icons), hotbar item tiles, equipment tiles; drag it by the pill
+    ----------------------------------------------------------------------
+    local function shortName(n)
+        if #n > 9 then return string.sub(n, 1, 7) .. ".." end
+        return n
+    end
+
+    local function renderHot(now, dt)
+        local perfMode = Window:Get("perf_mode") == true
+        local goal = HB.want and 1 or 0
+        if perfMode then
+            HB.alpha = goal
+        else
+            HB.alpha = HB.alpha + (goal - HB.alpha) * (1 - exp(-14 * dt))
+            if abs(HB.alpha - goal) < 0.01 then HB.alpha = goal end
+        end
+        local t = HD
+        if HB.alpha < 0.01 or not t.name then return end
+
+        local TILE = Window:Get("hb_tile") or 60
+        local GAP, PAD, PILL_H, SUB = 6, 4, 26, 18
+        local iconsOn = Window:Get("hb_icons") == true
+        local hn = (Window:Get("hb_items") == true) and t.hotN or 0
+        local showGear = Window:Get("hb_gear") == true
+        local en = showGear and t.eqN or 0
+        local sn = (Window:Get("hb_stims") == true) and t.stimN or 0
+        local msg = nil
+        if showGear and en == 0 then msg = (t.eqFound == false) and "Inventory not found" or "No equipment found" end
+
+        local title = fitText(t.name, 170, 12)
+        local textW = textWidth(title, 12)
+        local pillW = floor(textW + 36 + (sn > 0 and (sn * 19 + 4) or 0))
+        local W = max(pillW, hn > 0 and (hn * TILE + (hn - 1) * GAP) or 0, en > 0 and (en * TILE + (en - 1) * GAP) or 0,
+            msg and (textWidth(msg, 12) + 28) or 0)
+        W = floor(W)
+        local H = PILL_H
+        if hn > 0 then H = H + 8 + TILE end
+        if en > 0 then H = H + 8 + TILE elseif msg then H = H + 8 + 24 end
+
+        local cam = Workspace.CurrentCamera
+        local vs = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+        if not HB.cx then HB.cx = floor(vs.X / 2) end
+
+        -- dragging by the name pill (the panel keeps its centre when its width changes)
+        local mx, my = Mouse.X, Mouse.Y
+        local down = ismouse1pressed() and isrbxactive()
+        local px0 = floor(HB.cx - W / 2) + floor((W - pillW) / 2)
+        if down and not HB.wasDown and HB.alpha > 0.5 and mx >= px0 and mx <= px0 + pillW and my >= HB.y and my <= HB.y + PILL_H then
+            HB.drag = { mx - HB.cx, my - HB.y }
+        end
+        if HB.drag then
+            if down then HB.cx, HB.y = mx - HB.drag[1], my - HB.drag[2] else HB.drag = nil end
+        end
+        HB.wasDown = down
+        HB.cx = clamp(HB.cx, W / 2, max(W / 2, vs.X - W / 2))
+        HB.y = clamp(HB.y, 0, max(0, vs.Y - H))
+
+        local left, top = floor(HB.cx - W / 2), floor(HB.y)
+        local op = (Window:Get("hb_opacity") or 92) / 100
+        local A = HB.alpha
+        local bgA, fgA = A * op, A * min(1, op + 0.08)
+        local cBg, cGroup, cBorder = tc("bg"), tc("group"), tc("border")
+        local cText, cDim, cAccent = tc("text"), tc("dim"), tc("accent")
+
+        -- name pill
+        px0 = left + floor((W - pillW) / 2)
+        drawRect("hpb", px0, top, pillW, PILL_H, mixc(cBorder, cAccent, 0.3), bgA, 100, true, PILL_H / 2)
+        drawRect("hpf", px0 + 1, top + 1, pillW - 2, PILL_H - 2, cBg, bgA, 101, true, PILL_H / 2)
+        drawTxt("hpt", title, px0 + 18 + textW / 2, top + PILL_H / 2, cText, fgA, 104, 12, true, "c")
+        for k = 1, sn do
+            local s = STIMS[t.stimIdx[k]]
+            local ix = px0 + 18 + textW + 6 + (k - 1) * 19
+            local iy = top + (PILL_H - 16) / 2
+            local data = iconsOn and IMG.data[s.name]
+            if data then
+                drawImg("hs" .. k, data, ix, iy, 16, fgA, 104, 0)
+            else
+                drawCirc("hsd" .. k, ix + 8, iy + 8, 4, s.col, fgA, 104, true)    -- coloured dot until the icon arrives
+            end
+        end
+
+        local cy = top + PILL_H + 8
+        local function row(prefix, list, n, isEquipRow)
+            local x0 = left + floor((W - (n * TILE + (n - 1) * GAP)) / 2)
+            for i = 1, n do
+                local it = list[i]
+                local x = x0 + (i - 1) * (TILE + GAP)
+                local eq = it.eq
+                if isEquipRow then eq = (t.held ~= nil and it.item == t.held) end
+                local bg = HIGHLIGHT[it.item] and mixc(cGroup, HL_COL, 0.22) or cGroup
+                drawRect(prefix .. "b" .. i, x, cy, TILE, TILE, bg, bgA, 102, true, 8)
+                drawRect(prefix .. "s" .. i, x, cy, TILE, TILE, eq and cAccent or mixc(cBorder, cAccent, 0.12), fgA, 103, false, 8, eq and 3 or 1.5)
+                local data = iconsOn and IMG.data[it.item]
+                if data then
+                    drawImg(prefix .. "i" .. i, data, x + PAD, cy + PAD, TILE - PAD * 2, fgA, 104, 0)
+                else
+                    drawTxt(prefix .. "l" .. i, shortName(it.item), x + TILE / 2, cy + TILE / 2, cDim, fgA, 104, 10, true, "c")
+                end
+                local subs = it.subs
+                if subs then
+                    local shownSubs = 0
+                    for k = 1, #subs do
+                        local sd = iconsOn and IMG.data[subs[k]]
+                        if sd and shownSubs < 4 then
+                            shownSubs = shownSubs + 1
+                            local col, r = floor((shownSubs - 1) / 3), (shownSubs - 1) % 3
+                            local bx = x + TILE - (SUB + 2) - 2 - col * (SUB + 3)
+                            local by = cy + TILE - (SUB + 2) - 2 - r * (SUB + 3)
+                            drawRect(prefix .. "u" .. i .. "_" .. shownSubs, bx, by, SUB + 2, SUB + 2, cBg, bgA, 105, true, 4)
+                            drawImg(prefix .. "v" .. i .. "_" .. shownSubs, sd, bx + 1, by + 1, SUB, fgA, 106, 0)
+                        end
+                    end
+                end
+            end
+            cy = cy + TILE + 8
+        end
+        if hn > 0 then row("h", t.hot, hn, false) end
+        if en > 0 then
+            row("e", t.eq, en, true)
+        elseif msg then
+            local mw = floor(textWidth(msg, 12) + 28)
+            local mxx = left + floor((W - mw) / 2)
+            drawRect("mb", mxx, cy, mw, 24, cGroup, bgA, 102, true, 8)
+            drawRect("ms", mxx, cy, mw, 24, mixc(cBorder, cAccent, 0.12), fgA, 103, false, 8, 1)
+            drawTxt("mt", msg, mxx + mw / 2, cy + 12, cDim, fgA, 104, 12, false, "c")
+        end
+    end
+
+    local function render()
+        frame = frame + 1
+        local now = tick()
+        local dt = clamp(now - lastT, 0.001, 0.05)
+        lastT = now
+        local ok1, err1 = pcall(renderInfo, now, dt)
+        local ok2, err2 = pcall(renderHot, now, dt)
+        sweep()                                   -- one sweep after both panels: anything not drawn this frame is hidden
+        local err = (not ok1 and err1) or (not ok2 and err2) or nil
+        if err and err ~= lastErr then lastErr = err; warn("[fzzr player info] " .. tostring(err)) end
+    end
+
+    local conn = RunService.RenderStepped:Connect(render)
+
+    resetPanelPos = function() P.x, P.y = 20, 20 end
+    resetHotPos = function() HB.cx, HB.y = nil, 44 end
+
+    -- prints what the hotbar sees and why an icon is (not) loading
+    iconDebug = function()
+        task.spawn(function()
+            local t = HD
+            print("[Hotbar debug] target: " .. tostring(t.name) .. " | icons on: " .. tostring(Window:Get("hb_icons"))
+                .. " | hotbar items: " .. t.hotN .. " | equipment: " .. t.eqN .. " | stims: " .. t.stimN
+                .. " | held: " .. tostring(t.held))
+            print("[Hotbar debug] icon source: " .. IMG_BASES[1] .. "<Item>.png")
+            local function line(label, item)
+                print("[Hotbar debug] " .. label .. ": " .. item .. " | icon: " .. tostring(IMG.state[item])
+                    .. " | " .. tostring(IMG.info[item]))
+            end
+            for i = 1, t.hotN do line("hotbar " .. i, t.hot[i].item) end
+            for i = 1, t.eqN do line("gear " .. i, t.eq[i].item) end
+            for i = 1, t.stimN do line("stim " .. i, STIMS[t.stimIdx[i]].name) end
+            local pending = #IMG.queue
+            print("[Hotbar debug] queued downloads: " .. pending .. " | done")
+        end)
+    end
+
+    -- prints every attribute the game stores for the current target, so the key lists at the top can be fixed
+    dumpPlayerStats = function()
+        task.spawn(function()
+            local t = (D.name and D) or newData(LOCAL_NAME)
+            resolve(t)
+            local function dump(label, inst)
+                if not inst then print("[PlayerInfo dump] " .. label .. ": not found"); return end
+                local parts = {}
+                local ok, names = pcall(function() return inst:GetAttributes() end)
+                if ok and type(names) == "table" then
+                    for k, v in pairs(names) do
+                        if type(k) == "number" then
+                            local okg, val = pcall(function() return inst:GetAttribute(v) end)
+                            parts[#parts + 1] = tostring(v) .. "=" .. (okg and tostring(val) or "?")
+                        else
+                            parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
+                        end
+                    end
+                end
+                print("[PlayerInfo dump] " .. label .. " (" .. #parts .. " attributes): " .. table.concat(parts, ", "))
+            end
+            print("[PlayerInfo dump] target: " .. tostring(t.name))
+            dump("Statistics", t.stat)
+            dump("WipeStatistics", t.wipe)
+            dump("GameplayVariables", t.gv)
+            dump("Buffs", t.buffs)
+            dump("UAC.Reports", t.rep)
+            local plr = Players:FindFirstChild(t.name)
+            local ch = plr and plr.Character
+            local ok, hum = pcall(function() return ch and ch:FindFirstChildOfClass("Humanoid") end)
+            if ok and hum then
+                local ok2, h, m = pcall(function() return hum.Health, hum.MaxHealth end)
+                print("[PlayerInfo dump] Humanoid Health/MaxHealth: " .. tostring(ok2 and h) .. " / " .. tostring(ok2 and m))
+            else
+                print("[PlayerInfo dump] no Humanoid found")
+            end
+            print("[PlayerInfo dump] done")
+        end)
+    end
+
+    _G.__FzzrPlayerInfo = function()
+        running = false
+        pcall(function() conn:Disconnect() end)
+        for _, d in pairs(pool) do pcall(function() d.o:Remove() end) end
+        pool = {}
+    end
 end
 
 --========================================================================
