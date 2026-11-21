@@ -1,1 +1,296 @@
+loadstring(httpget("https://raw.githubusercontent.com/zwooshii/lib/refs/heads/main/core"))()
+local Fzzr = _G.Fzzr                  -- Matcha drops loadstring return values, so the library lives in _G.Fzzr
 
+local Window = Fzzr:CreateWindow({
+    Title = "fzzr", Version = "0.0.5", Position = { 60, 40 },
+    -- LogoUrl = "https://raw.githubusercontent.com/zwooshii/lib/main/assets/flaticons/fzzr.png",   -- optional: the library looks for fzzr.png in the icon folder by itself
+    -- IconBase = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_ICONS/main/",   -- own icon folder (see README)
+    -- TagStyle = { size = 10, height = 16, textDY = -1.5 },                            -- look of the header pills
+})
+
+--========================================================================
+-- BUILD TAGS (top right of the header) -- edit this block to change them
+--========================================================================
+-- Which tags this build shows, left to right: any keys from TAG_TYPES, e.g. { "Dev" } / { "Beta", "Priv" } / {} for none.
+local BUILD_TAGS = { "Dev" }
+-- Define / rename / recolour the kinds of build here (text is what the pill says).
+local TAG_TYPES = {
+    Beta = { text = "BETA", color = Color3.fromRGB(255, 159, 64) },   -- orange
+    Dev  = { text = "DEV",  color = Color3.fromRGB(255, 120, 170) },  -- pink
+    Priv = { text = "PRIV", color = Color3.fromRGB(255, 77, 77) },    -- red
+}
+for _, name in ipairs(BUILD_TAGS) do
+    local t = TAG_TYPES[name]
+    if t then Window:AddTag(t.text, t.color) end
+end
+
+--========================================================================
+-- Pages  (category = sidebar heading, parent = makes it a sub page)
+--========================================================================
+local ragebot  = Window:AddPage("Ragebot",  { category = "Weapon",     icon = "crosshair" })
+local legitbot = Window:AddPage("Legitbot", { category = "Weapon",     icon = "brush" })
+local visuals  = Window:AddPage("Visuals",  { category = "Visuals",    icon = "mountain" })
+local pdisplay= Window:AddPage("Player Display", { category = "Other", icon = "blade" })
+local misc     = Window:AddPage("Misc",     { category = "Other",      icon = "bolt" })
+local alerts   = Window:AddPage("Alerts",   { category = "Other",      icon = "bolt" })
+local hotbar   = Window:AddPage("Hotbar",    { parent = "Player Display", icon = "grid" })
+local pinv     = Window:AddPage("Inventory", { parent = "Player Display", icon = "file" })
+local staffdet = Window:AddPage("Staff Detector",   { parent = "Alerts", icon = "user" })
+local cheatdet = Window:AddPage("Cheater Detector", { parent = "Alerts", icon = "search" })
+
+-- Ragebot ---------------------------------------------------------------
+local aim = ragebot:AddBox("Aimbot", "Left")
+aim:AddSwitch("rage_on", "Enable Ragebot", true, { bold = true, tip = "Master switch for the ragebot. Bind it to a key to toggle it in game.", binds = {
+    { key = 0x48, mode = "Toggle", show = true }, { key = 0x4B, mode = "Toggle", show = true } } })
+
+local tgt = ragebot:AddBox("Targeting", "Left")
+tgt:AddChoice("targeting", "Targeting", { "Highest Damage", "Closest To Crosshair", "Lowest Health" }, 1, { width = 122, tip = "How the target is picked when several players are in range." })
+tgt:AddChoice("scan_origin", "Scan Origin", { "Fair", "Safe", "Aggressive" }, 3, { width = 122, tip = "Where scans start from. Aggressive checks more positions, which costs more performance." })
+tgt:AddMulti("hitboxes", "Hitboxes", { "Head", "Torso", "Arms", "Legs", "Feet" }, { "Head", "Torso", "Arms" }, { width = 122, tip = "Which body parts the ragebot is allowed to aim at." })
+tgt:AddSwitch("extrap", "Extrapolation", false, { dim = true, bind = true, tip = "Predicts where a moving target will be a moment from now." })
+tgt:AddSwitch("multipoint", "Multipoint", true, { dim = true, bind = true, tip = "Scans several points on each hitbox instead of only its centre." })
+local manip = tgt:AddPopover("Manipulation", "Manipulation", 200)
+manip:AddSwitch("peek_assist", "Peek Assist", false)
+manip:AddSlider("peek_dist", "Distance", 0, 10, 4.0, { dec = 1, suffix = " st", trackX = 70 })
+manip:AddSwitch("desync", "Desync", false)
+
+local fil = ragebot:AddBox("Filters", "Left")
+fil:AddSlider("min_dmg", "Minimum Damage", 0, 120, 0, { noTrack = true, zeroText = "Off", dot = true, tip = "Ignores shots that would deal less damage than this. Drag the value to change it." })
+fil:AddSlider("hit_chance", "Hit Chance", 0, 100, 65, { suffix = "%", tip = "Only shoots when the estimated chance to hit is at least this high." })
+fil:AddSwitch("autowall", "Autowall", false, { bind = true, tip = "Allows shots through thin walls when the damage is still high enough." })
+
+local perf = ragebot:AddBox("Performance", "Left")
+perf:AddSlider("tick_rate", "Tick Rate", 1, 240, 120, { suffix = " Hz", tip = "How many times per second the ragebot updates. Lower is lighter on your FPS." })
+perf:AddSlider("fov_limit", "FOV Limit", 1, 180, 180, { suffix = "°", tip = "Only players inside this field of view around your crosshair are considered." })
+
+local rv = ragebot:AddBox("Visuals", "Left")
+rv:AddSwitch("fov_vis", "Field of View", false, { color = Color3.fromRGB(32, 201, 190) })
+
+local anti = ragebot:AddBox("Anti Aim", "Right")
+anti:AddSwitch("anti_aim", "Anti Aim", false, { binds = { { key = 0x4A, mode = "Toggle", show = true } } })
+anti:AddChoice("pitch", "Pitch", { "Down", "Up", "Zero", "Off" }, 1, { width = 122 })
+anti:AddChoice("yaw", "Yaw", { "Back", "Left", "Right", "Spin" }, 1, { width = 122 })
+
+local wep = ragebot:AddBox("Weapon", "Right")
+wep:AddSwitch("inf_pen", "Infinite Penetration", false, { bind = true })
+wep:AddSwitch("red_spread", "Reduce Spread", false, { bind = true })
+wep:AddSwitch("red_recoil", "Reduce Recoil", false, { bind = true })
+
+-- Legitbot ----------------------------------------------------------------
+local lab = legitbot:AddBox("Aimbot", "Left")
+lab:AddSwitch("lb_on", "Enable Legitbot", false, { bold = true, tip = "Smoothly pulls your aim toward the target while the bind is held.",
+    binds = { { key = 0x02, mode = "Hold", show = true } } })
+lab:AddChoice("lb_hitbox", "Hitbox", { "Head", "Neck", "Chest", "Nearest" }, 4, { width = 122 })
+lab:AddSlider("lb_fov", "FOV", 1, 180, 40, { suffix = "°", tip = "Only players inside this circle around your crosshair are considered." })
+lab:AddSlider("lb_smooth", "Smoothing", 1, 100, 35, { suffix = "%", tip = "Higher is slower and looks more human." })
+lab:AddSwitch("lb_vis", "Visible Check", true, { tip = "Ignores players behind walls." })
+lab:AddSwitch("lb_team", "Team Check", true)
+lab:AddSwitch("lb_drawfov", "Draw FOV", false, { color = Color3.fromRGB(255, 168, 192) })
+
+local ltg = legitbot:AddBox("Targeting", "Left")
+ltg:AddChoice("lb_select", "Target Selection", { "Closest To Crosshair", "Closest Distance", "Lowest Health" }, 1, { width = 122 })
+ltg:AddSlider("lb_dist", "Max Distance", 50, 5000, 1500, { suffix = " st", trackX = 96 })
+ltg:AddSwitch("lb_sticky", "Sticky Target", false, { tip = "Keeps the current target until it dies or leaves the FOV." })
+ltg:AddSwitch("lb_friends", "Ignore Friends", true)
+
+local trg = legitbot:AddBox("Triggerbot", "Right")
+trg:AddSwitch("lb_trig", "Triggerbot", false, { tip = "Fires automatically while your crosshair is on a player.",
+    binds = { { key = 0x05, mode = "Hold", show = true } } })
+trg:AddSlider("lb_trig_delay", "Delay", 0, 500, 40, { suffix = " ms" })
+trg:AddSlider("lb_trig_hc", "Hit Chance", 0, 100, 70, { suffix = "%" })
+trg:AddMulti("lb_trig_hb", "Hitboxes", { "Head", "Torso", "Arms", "Legs" }, { "Head", "Torso" }, { width = 122 })
+
+local rcs = legitbot:AddBox("Recoil", "Right")
+rcs:AddSwitch("lb_rcs", "Recoil Control", false)
+rcs:AddSlider("lb_rcs_x", "Horizontal", 0, 100, 50, { suffix = "%" })
+rcs:AddSlider("lb_rcs_y", "Vertical", 0, 100, 70, { suffix = "%" })
+
+-- Misc --------------------------------------------------------------------
+local mcam = misc:AddBox("Camera", "Left")
+mcam:AddSwitch("ms_fov", "Custom FOV", false, { bind = true })
+mcam:AddSlider("ms_fov_val", "Field Of View", 30, 120, 70, { suffix = "°", trackX = 106 })
+mcam:AddSwitch("ms_zoom", "Zoom", false, { bind = true })
+mcam:AddSlider("ms_zoom_val", "Zoom FOV", 5, 60, 20, { suffix = "°", trackX = 106 })
+
+local mwld = misc:AddBox("World", "Left")
+mwld:AddSwitch("ms_time", "Custom Time", false)
+mwld:AddSlider("ms_time_val", "Clock Time", 0, 24, 12, { dec = 1, suffix = " h", trackX = 96 })
+mwld:AddSwitch("ms_ambient", "Ambient Color", false, { color = Color3.fromRGB(140, 110, 160) })
+mwld:AddSlider("ms_exposure", "Exposure", -3, 3, 0, { dec = 1, trackX = 96 })
+
+local mmov = misc:AddBox("Movement", "Right")
+mmov:AddSwitch("ms_speed", "Speed", false, { bind = true })
+mmov:AddSlider("ms_speed_val", "Speed Value", 16, 200, 24, { trackX = 100 })
+mmov:AddSwitch("ms_noclip", "Noclip", false, { bind = true })
+
+local mutl = misc:AddBox("Utility", "Right")
+mutl:AddSwitch("ms_alerts", "Join / Leave Alerts", true)
+mutl:AddButtons({
+    { "Copy Job ID",   function() Window:Copy(tostring(game.JobId), "Job ID copied") end },
+    { "Copy Place ID", function() Window:Copy(tostring(game.PlaceId), "Place ID copied") end },
+    { "Copy Game Name", function()
+        local ok, n = pcall(getgamename)
+        Window:Copy(ok and tostring(n) or "Unknown", "Game name copied")
+    end, full = true },
+})
+
+-- Alerts > Staff Detector ---------------------------------------------------
+local sdx = staffdet:AddBox("Staff Detector", "Left")
+sdx:AddSwitch("sd_on", "Enable Staff Detector", false, { bold = true, tip = "Checks everyone in the server and warns you when a staff member is there." })
+sdx:AddChoice("sd_method", "Detect By", { "Group Rank", "Name List", "Both" }, 3, { width = 122 })
+sdx:AddEntry("sd_group", "Group ID", "Group ID...")
+sdx:AddSlider("sd_rank", "Minimum Rank", 1, 255, 100, { trackX = 100, tip = "Players with at least this rank in the group count as staff." })
+sdx:AddCaption("Players are checked when they join and when the detector is switched on.")
+local sda = staffdet:AddBox("Alert", "Right")
+sda:AddMulti("sd_actions", "Actions", { "Notification", "Bind List Tag", "Highlight Player" }, { "Notification" }, { width = 122 })
+sda:AddSwitch("sd_hide", "Hide Menu On Detect", false, { tip = "Closes the menu the moment a staff member is found." })
+sda:AddSwitch("sd_leave", "Leave On Detect", false, { tip = "Leaves the server when a staff member is found. Off by default." })
+sda:AddSlider("sd_cd", "Cooldown", 0, 60, 10, { suffix = " s", trackX = 96, tip = "Minimum time between two alerts for the same player." })
+
+-- Alerts > Cheater Detector -------------------------------------------------
+local cdx = cheatdet:AddBox("Cheater Detector", "Left")
+cdx:AddSwitch("cd_on", "Enable Cheater Detector", false, { bold = true, tip = "Watches other players for movement that looks like cheating." })
+cdx:AddMulti("cd_checks", "Checks", { "Speed", "Teleport", "Fly", "Noclip", "Aim Snap" }, { "Speed", "Teleport", "Fly" }, { width = 122 })
+cdx:AddSlider("cd_sens", "Sensitivity", 1, 100, 50, { suffix = "%", trackX = 96, tip = "Higher catches more cheaters but gives more false alarms." })
+cdx:AddSlider("cd_flags", "Flags To Alert", 1, 10, 3, { trackX = 100, tip = "How many suspicious moments a player needs before you are warned." })
+local cda = cheatdet:AddBox("Alert", "Right")
+cda:AddMulti("cd_actions", "Actions", { "Notification", "Bind List Tag", "Highlight Player" }, { "Notification" }, { width = 122 })
+cda:AddSwitch("cd_priority", "Mark As Priority", false, { tip = "Players who get flagged are marked Priority in the Players page." })
+cda:AddSwitch("cd_friends", "Ignore Friends", true)
+cda:AddSlider("cd_cd", "Cooldown", 0, 60, 15, { suffix = " s", trackX = 96 })
+
+-- Player Display > Hotbar ---------------------------------------------------
+local hbx = hotbar:AddBox("Hotbar", "Left")
+hbx:AddSwitch("hb_on", "Show Hotbar", true, { bold = true, tip = "Shows the tools a player has in their hotbar." })
+hbx:AddChoice("hb_pos", "Position", { "Below Player", "Above Player", "Right Side" }, 1, { width = 122 })
+hbx:AddChoice("hb_mode", "Display", { "Equipped Only", "All Slots" }, 2, { width = 122 })
+hbx:AddSlider("hb_max", "Max Slots", 1, 10, 5, { trackX = 96 })
+hbx:AddSwitch("hb_empty", "Show Empty Slots", false)
+local hbs = hotbar:AddBox("Style", "Left")
+hbs:AddSlider("hb_size", "Text Size", 8, 20, 12, { suffix = "px", trackX = 96 })
+hbs:AddSlider("hb_alpha", "Opacity", 10, 100, 100, { suffix = "%", trackX = 96 })
+hbs:AddSwitch("hb_outline", "Outline", true)
+hbs:AddSwitch("hb_active", "Highlight Equipped", true, { color = Color3.fromRGB(255, 168, 192) })
+local hbf = hotbar:AddBox("Filters", "Right")
+hbf:AddSlider("hb_dist", "Max Distance", 50, 5000, 1500, { suffix = " st", trackX = 96 })
+hbf:AddSwitch("hb_team", "Hide Teammates", true)
+hbf:AddSwitch("hb_vis", "Visible Only", false)
+hbf:AddMulti("hb_types", "Show", { "Weapons", "Tools", "Utility" }, { "Weapons", "Tools", "Utility" }, { width = 122 })
+
+-- Player Display > Inventory ------------------------------------------------
+local ivx = pinv:AddBox("Inventory", "Left")
+ivx:AddSwitch("iv_on", "Show Inventory", false, { bold = true, tip = "Lists the items in a player's backpack." })
+ivx:AddChoice("iv_src", "Source", { "Backpack", "Backpack + Equipped" }, 2, { width = 122 })
+ivx:AddSlider("iv_max", "Max Items", 1, 30, 8, { trackX = 96 })
+ivx:AddSwitch("iv_count", "Show Item Count", true)
+ivx:AddSwitch("iv_group", "Group Duplicates", true)
+ivx:AddChoice("iv_sort", "Sort By", { "Name", "Slot Order", "Count" }, 2, { width = 122 })
+local ivf = pinv:AddBox("Filters", "Right")
+ivf:AddMulti("iv_show", "Show", { "Weapons", "Tools", "Consumables", "Other" }, { "Weapons", "Tools", "Consumables", "Other" }, { width = 122 })
+ivf:AddEntry("iv_filter", "Item Filter", "Item name...")
+ivf:AddSlider("iv_dist", "Max Distance", 50, 5000, 1500, { suffix = " st", trackX = 96 })
+local iva = pinv:AddBox("Alerts", "Right")
+iva:AddSwitch("iv_alert", "Item Alert", false, { color = Color3.fromRGB(255, 159, 64), tip = "Highlights a player who is carrying the item below." })
+iva:AddEntry("iv_alert_item", "Alert Item", "Item name...")
+
+-- Visuals > Players / World --------------------------------------------------
+do
+    local vplayers = Window:AddPage("Players", { parent = "Visuals", icon = "user" })
+    local vworld   = Window:AddPage("World",   { parent = "Visuals", icon = "globe" })
+
+    -- Player ESP
+    local pesp = vplayers:AddBox("Player ESP", "Left")
+    pesp:AddTabs("esp_state", { "Default", "Target", "Priority", "Friendly" }, 1)
+    local pen = pesp:AddSwitch("esp_on", "Enabled", true, { more = { title = "Preview State", width = 230 } })
+    pen.sub:AddSwitch("pv_rotate", "Auto Rotate", true)
+    pen.sub:AddSlider("pv_speed", "Speed", 0, 360, 50, { suffix = "°/s", trackX = 70 })
+    pen.sub:AddChoice("pv_model", "Model", { "Default", "R15", "R6" }, 1, { width = 100 })
+    pesp:AddPreview(206)
+    local chips = pesp:AddChips({
+        { id = "esp_box", label = "Box" },               { id = "esp_vischams", label = "Visible Chams" },
+        { id = "esp_hpbar", label = "Health Bar" },      { id = "esp_hptext", label = "Health Text" },
+        { id = "esp_highlight", label = "Highlight" },   { id = "esp_glow", label = "Glow Chams" },
+        { id = "esp_name", label = "Name" },             { id = "esp_flags", label = "Flags" },
+        { id = "esp_arrows", label = "Offscreen Arrows" }, { id = "esp_weapon", label = "Weapon Text" },
+    })
+    chips.byId.esp_box.sub:AddChoice("esp_box_style", "Style", { "Full", "Corners" }, 1, { width = 100 })
+    chips.byId.esp_vischams.sub:AddSlider("esp_vischams_a", "Opacity", 0, 100, 60, { suffix = "%", trackX = 70 })
+    chips.byId.esp_hpbar.sub:AddSwitch("esp_hpbar_grad", "Gradient", true)
+    chips.byId.esp_flags.sub:AddMulti("esp_flags_list", "Flags", { "Reload", "Scoped", "HK", "Visible" }, { "Reload", "HK" }, { width = 100 })
+    chips.byId.esp_arrows.sub:AddSlider("esp_arrows_size", "Size", 4, 30, 12, { suffix = "px", trackX = 70 })
+    local chipCols = {
+        esp_box = { 255, 255, 255 }, esp_vischams = { 255, 120, 150 }, esp_hpbar = { 64, 224, 128 },
+        esp_hptext = { 255, 255, 255 }, esp_highlight = { 255, 200, 80 }, esp_glow = { 255, 150, 200 },
+        esp_name = { 255, 255, 255 }, esp_flags = { 255, 200, 60 }, esp_arrows = { 255, 90, 90 },
+        esp_weapon = { 230, 230, 230 },
+    }
+    for id, c in pairs(chipCols) do
+        chips.byId[id].sub:AddSwitch(id .. "_col", "Custom Color", false, { color = Color3.fromRGB(c[1], c[2], c[3]) })
+    end
+
+    -- Hit Effects
+    local hit = vplayers:AddBox("Hit Effects", "Right")
+    local dn = hit:AddSwitch("hit_dmg", "3D Damage Numbers", true, { more = { title = "Damage Numbers", width = 230 } })
+    dn.sub:AddSlider("hit_dmg_size", "Size", 8, 40, 18, { suffix = "px", trackX = 70 })
+    dn.sub:AddSlider("hit_dmg_life", "Duration", 1, 5, 2, { dec = 1, suffix = " s", trackX = 70 })
+    local dp = hit:AddSwitch("hit_death", "Death Particles", true, { color = Color3.fromRGB(46, 255, 148),
+        more = { title = "Death Particles", width = 230 } })
+    dp.sub:AddSlider("hit_death_amt", "Amount", 1, 50, 20, { trackX = 70 })
+    local hs_ = hit:AddSwitch("hit_skel", "Hit Skeletons", true, { more = { title = "Hit Skeletons", width = 230 } })
+    hs_.sub:AddSlider("hit_skel_life", "Duration", 1, 10, 3, { dec = 1, suffix = " s", trackX = 70 })
+    local hc = hit:AddSwitch("hit_chams", "Hit Chams", true, { more = { title = "Hit Chams", width = 230 } })
+    hc.sub:AddSlider("hit_chams_life", "Duration", 1, 10, 2, { dec = 1, suffix = " s", trackX = 70 })
+    local hsn = hit:AddSwitch("hit_sound", "Hit Sound", true, { more = { title = "Hit Sound", width = 230 } })
+    hsn.sub:AddChoice("hit_sound_id", "Sound", { "Default", "Bell", "Bonk", "Skeet" }, 1, { width = 100 })
+    hsn.sub:AddSlider("hit_sound_vol", "Volume", 0, 100, 60, { suffix = "%", trackX = 70 })
+    local he = hit:AddSwitch("hit_effect", "Hit Effect", true, { color = Color3.fromRGB(225, 200, 170),
+        more = { title = "Hit Effect", width = 230 } })
+    he.sub:AddChoice("hit_effect_style", "Effect", { "Spark", "Ring", "Burst" }, 1, { width = 100 })
+    local sl = hit:AddSwitch("hit_logs", "Shot Logs", true, { more = { title = "Shot Logs", width = 230 } })
+    sl.sub:AddMulti("hit_logs_to", "Log To", { "Console", "Notification" }, { "Console" }, { width = 110 })
+
+    local slf = vplayers:AddBox("Self", "Right")
+    slf:AddSwitch("self_chams", "Self Chams", true)
+    slf:AddSwitch("self_trail", "Self Trail", true)
+
+    -- World
+    local wbox = vworld:AddBox("World", "Left")
+    wbox:AddSwitch("amb_on", "Ambience", false, { color = Color3.fromRGB(75, 89, 133), bind = true })
+    wbox:AddChoice("sky", "Sky", { "Default", "Night", "Sunset", "Overcast" }, 1, { width = 112 })
+    wbox:AddSwitch("fog", "Fog", false)
+    wbox:AddSlider("fog_dist", "Fog Distance", 50, 1000, 400, { suffix = " st" })
+    wbox:AddSwitch("fullbright", "Fullbright", false)
+
+    local fbox = vworld:AddBox("Fill", "Left")
+    fbox:AddSwitch("grad_fill", "Gradient Fill", true, { color = Color3.fromRGB(235, 90, 90) })
+    fbox:AddSwitch("footsteps", "Footsteps", false, { color = Color3.fromRGB(255, 255, 255) })
+
+    local xbox = vworld:AddBox("Crosshair", "Right")
+    local xs = xbox:AddSwitch("xhair_on", "Custom Crosshair", false, { more = { title = "Crosshair Options", width = 250 } })
+    xs.sub:AddChoice("xhair_mode", "Mode", { "Dot", "Cross", "Image" }, 1, { width = 110 })
+    xs.sub:AddPriority("xhair_origin", "Origin Priority", { "Gun Muzzle", "Legitbot Target", "Ragebot Target", "Screen Center" })
+    local ln = xs.sub:AddPopover("Line Settings", "Line Settings", 230)
+    ln:AddSlider("xhair_len", "Length", 1, 30, 8, { suffix = "px", trackX = 70 })
+    ln:AddSlider("xhair_th", "Thickness", 1, 6, 1, { suffix = "px", trackX = 70 })
+    ln:AddSlider("xhair_gap", "Gap", 0, 20, 4, { suffix = "px", trackX = 70 })
+    local im = xs.sub:AddPopover("Image Settings", "Image Settings", 230)
+    im:AddEntry("xhair_img", "Image", "Asset id...")
+    im:AddSlider("xhair_imgsize", "Size", 8, 128, 51, { suffix = "px", trackX = 70 })
+    xs.sub:AddSlider("xhair_outline", "Outline", 0, 5, 1, { suffix = "px", trackX = 90 })
+    xs.sub:AddSwitch("xhair_outline_on", "Outline Enabled", true, { color = Color3.fromRGB(0, 0, 0) })
+    xs.sub:AddSwitch("xhair_color_on", "Color", false, { color = Color3.fromRGB(128, 190, 255) })
+    local an = xs.sub:AddPopover("Animation", "Animation", 230)
+    an:AddChoice("xhair_anim", "Style", { "None", "Spin", "Pulse" }, 1, { width = 100 })
+    an:AddSlider("xhair_anim_speed", "Speed", 0, 300, 100, { suffix = "%", trackX = 70 })
+
+    local bbox = vworld:AddBox("Bullet Beams", "Right")
+    bbox:AddSwitch("beams", "Beams", false, { color = Color3.fromRGB(64, 224, 160) })
+    bbox:AddChoice("beam_style", "Beam Style", { "Default", "Lightning", "Pulse" }, 1, { width = 112 })
+    bbox:AddSlider("beam_width", "Width", 0.05, 2, 0.25, { dec = 2, trackX = 90 })
+end
+
+
+--========================================================================
+-- Finish: builds the Common tab, loads configs, opens the menu
+--========================================================================
+Window:Init()
